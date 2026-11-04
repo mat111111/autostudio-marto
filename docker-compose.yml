@@ -24,7 +24,7 @@ services:
   frontend:
     build: ./frontend
     environment:
-      VITE_API_TARGET: http://api:8000
+      VITE_API_TARGET: https://autostudio-marto-2.onrender.com/
     ports: ["5173:5173"]
     volumes: ["./frontend/src:/app/src"]
     depends_on: [api]
