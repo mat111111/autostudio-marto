@@ -1,0 +1,25 @@
+{
+  "name": "autostudio-manual",
+  "version": "1.0.0",
+  "description": "Editor de video vertical 100% manual. El render corre en tu navegador (ffmpeg.wasm).",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/core.test.js",
+    "test:e2e": "python3 test/e2e.py"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "compression": "^1.8.2",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@ffmpeg/core": "0.12.10",
+    "@ffmpeg/core-mt": "0.12.10",
+    "@ffmpeg/ffmpeg": "0.12.15",
+    "@ffmpeg/util": "0.12.2"
+  }
+}

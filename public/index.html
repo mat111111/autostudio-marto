@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoStudio Manual · Editor de Reels / TikTok / Shorts</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="logo">🎬 AutoStudio <span>Manual</span></div>
+    <button id="btnOpen" class="btn">📂 Abrir video</button>
+    <span id="fileName" class="dim"></span>
+    <div class="grow"></div>
+    <button id="btnUndo" class="btn ghost" disabled title="Ctrl+Z">↶</button>
+    <button id="btnRedo" class="btn ghost" disabled title="Ctrl+Y">↷</button>
+    <label class="zoomtl" title="Zoom de la línea de tiempo (Ctrl + rueda)">🔎 <input id="zoomTl" type="range" min="6" max="400" step="1" value="70"></label>
+    <button id="btnExport" class="btn primary">⬇ Exportar</button>
+  </header>
+
+  <main>
+    <section id="center">
+      <div id="stageWrap">
+        <canvas id="stage" width="304" height="540"></canvas>
+        <div id="drop">
+          <h2>Subí tu video y editalo a mano</h2>
+          <p>MP4 o MOV (H.264). <b>Se procesa en tu navegador: el video nunca se sube a ningún servidor.</b></p>
+          <button id="dropBtn" class="btn primary big">📂 Elegir video</button>
+          <p class="dim">o arrastralo hasta acá</p>
+        </div>
+      </div>
+      <div id="transport">
+        <button id="btnStart" class="btn mini" title="Inicio (Home)">⏮</button>
+        <button id="btnPrev" class="btn mini" title="Cuadro anterior (←)">◀︎</button>
+        <button id="btnPlay" class="btn" title="Reproducir / pausa (Espacio)">▶</button>
+        <button id="btnNext" class="btn mini" title="Cuadro siguiente (→)">▶︎</button>
+        <span id="timeInfo" class="dim">—</span>
+        <div class="grow"></div>
+        <button id="qSplit" class="btn mini" title="Dividir en el cabezal (S)">✂ Dividir</button>
+        <button id="qIn" class="btn mini" title="Marcar entrada (I)">I</button>
+        <button id="qOut" class="btn mini" title="Marcar salida (O)">O</button>
+        <button id="qCut" class="btn mini danger" title="Cortar la selección (X)">Cortar I–O</button>
+      </div>
+    </section>
+    <aside id="side">
+      <nav id="tabs"></nav>
+      <div id="panel"></div>
+    </aside>
+  </main>
+
+  <section id="timeline">
+    <div id="tlLabels"></div>
+    <div id="tlScroll"></div>
+  </section>
+
+  <video id="src" playsinline preload="auto"></video>
+  <input id="videoIn" type="file" accept="video/*,.mov,.mkv" hidden>
+  <input id="srtIn" type="file" accept=".srt,text/plain" hidden>
+  <input id="imgIn" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+  <input id="projIn" type="file" accept=".json,application/json" hidden>
+  <input id="musicIn" type="file" accept="audio/*" hidden>
+  <div id="toast"></div>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

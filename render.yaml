@@ -1,0 +1,7 @@
+# Render Blueprint: un Web Service Docker. No necesita disco ni variables: el render lo hace el navegador.
+services:
+  - type: web
+    name: autostudio-manual
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
