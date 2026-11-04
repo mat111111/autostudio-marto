@@ -1,0 +1,33 @@
+# Desarrollo local: abrí http://localhost:5173 (el frontend reenvía /api al backend).
+services:
+  redis:
+    image: redis:7-alpine
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports: ["8000:8000"]
+    volumes: ["data:/data"]
+    depends_on: [redis]
+
+  worker:
+    build: ./backend
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    command: ["rq", "worker", "autostudio", "--url", "redis://redis:6379/0"]
+    volumes: ["data:/data"]
+    depends_on: [redis]
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_TARGET: http://api:8000
+    ports: ["5173:5173"]
+    volumes: ["./frontend/src:/app/src"]
+    depends_on: [api]
+
+volumes:
+  data:
