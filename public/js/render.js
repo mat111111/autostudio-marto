@@ -51,19 +51,31 @@ const withTimeout = (p, ms, msg) => new Promise((res, rej) => { const t = setTim
 async function loadKind(kind, onLog, onProgress) {
   const mt = kind === 'multi';
   const dir = `${location.origin}/vendor/${mt ? 'core-mt' : 'core'}/`;
-  const names = mt ? ['ffmpeg-core.js', 'ffmpeg-core.wasm', 'ffmpeg-core.worker.js'] : ['ffmpeg-core.js', 'ffmpeg-core.wasm'];
-  const mimes = { js: 'text/javascript', wasm: 'application/wasm' };
-  const urls = [];
-  for (const n of names) {
-    urls.push(await blobURL(dir + n, mimes[n.endsWith('wasm') ? 'wasm' : 'js'], (g, t) => onProgress(`Descargando motor de video… ${(g / 1048576).toFixed(1)}${t ? ' / ' + (t / 1048576).toFixed(0) : ''} MB (${n})`)));
+  // Los .js del motor se cargan por URL normal (los acepta cualquier política 'self'; los blob: a veces los bloquea el servidor/CSP).
+  // Solo el .wasm (el archivo pesado) se descarga con progreso como blob; si eso falla, se reintenta directo.
+  const js = dir + 'ffmpeg-core.js';
+  const worker = dir + 'ffmpeg-core.worker.js';
+  const wasmDirect = dir + 'ffmpeg-core.wasm';
+  let wasm = wasmDirect;
+  // En multi-hilo el .wasm también se lee desde los hilos: ahí se usa siempre la URL directa (la combinación con blob falla).
+  if (!mt) try {
+    wasm = await blobURL(wasmDirect, 'application/wasm', (g, t) => onProgress(`Descargando motor de video… ${(g / 1048576).toFixed(1)}${t ? ' / ' + (t / 1048576).toFixed(0) : ''} MB`));
+  } catch (e) { onProgress('Descarga con progreso no disponible; cargando directo…'); }
+  const attempt = async (wasmURL) => {
+    const f = new FFmpeg();
+    f.on('log', ({ message }) => { if (DEBUG) console.log('[ffmpeg]', message); onLog && onLog(message); });
+    onProgress(`Iniciando motor (${mt ? 'multi-hilo' : 'un hilo'})…`);
+    try {
+      await withTimeout(f.load(mt ? { coreURL: js, wasmURL, workerURL: worker } : { coreURL: js, wasmURL }), mt ? 60000 : 120000, 'El motor tardó demasiado en iniciar.');
+    } catch (e) { try { f.terminate(); } catch { /* nada */ } throw e; }
+    return f;
+  };
+  try { return await attempt(wasm); }
+  catch (e) {
+    if (wasm === wasmDirect) throw e;
+    onProgress('Reintentando carga directa del motor…');
+    return attempt(wasmDirect);
   }
-  const f = new FFmpeg();
-  f.on('log', ({ message }) => { if (DEBUG) console.log('[ffmpeg]', message); onLog && onLog(message); });
-  onProgress(`Iniciando motor (${mt ? 'multi-hilo' : 'un hilo'})…`);
-  try {
-    await withTimeout(f.load(mt ? { coreURL: urls[0], wasmURL: urls[1], workerURL: urls[2] } : { coreURL: urls[0], wasmURL: urls[1] }), mt ? 60000 : 120000, 'El motor tardó demasiado en iniciar.');
-  } catch (e) { try { f.terminate(); } catch { /* nada */ } throw e; }
-  return f;
 }
 
 async function getFFmpeg(onLog, onProgress = () => {}) {
@@ -74,7 +86,8 @@ async function getFFmpeg(onLog, onProgress = () => {}) {
     loadedKind = want === 'multi' ? 'multi-hilo' : 'un hilo';
   } catch (e1) {
     if (want === 'multi') {
-      onProgress('El modo multi-hilo no arrancó; probando modo compatible (un hilo)…');
+      console.warn('[motor] multi-hilo falló:', e1);
+      onProgress(`El modo multi-hilo no arrancó (${String(e1.message || e1).slice(0, 90)}); probando modo compatible (un hilo)…`);
       try { ff = await loadKind('single', onLog, onProgress); loadedKind = 'un hilo'; setEnginePref('single'); }
       catch (e2) { ff = null; throw new Error('No se pudo cargar el motor de video: ' + (e2.message || e2)); }
     } else { ff = null; throw new Error('No se pudo cargar el motor de video: ' + (e1.message || e1)); }

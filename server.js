@@ -31,15 +31,6 @@ export async function warmVendor(root = join(here, 'public', 'vendor')) {
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
-  // El motor pesa ~32 MB: comprimirlo en cada pedido ahoga a un servidor chico (plan gratis) y la carga se "cuelga".
-  // Lo comprimimos UNA vez al arrancar (en segundo plano) y lo servimos desde memoria; mientras tanto va sin comprimir.
-  app.use(compression({ filter: (req, res) => !req.path.startsWith('/vendor/core') && compression.filter(req, res) }));
-  app.use('/vendor', (req, res, next) => {
-    const hit = packed.get(req.path);
-    if (!hit || !/\bgzip\b/.test(req.headers['accept-encoding'] || '')) return next();
-    res.set({ 'Content-Encoding': 'gzip', 'Content-Type': hit.type, 'Content-Length': hit.buf.length, Vary: 'Accept-Encoding', 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Raw-Length': hit.raw });
-    res.end(hit.buf);
-  });
   app.use((req, res, next) => {
     res.set({
       // ISOLATION=0 solo sirve para probar el modo de respaldo (un hilo).
@@ -48,9 +39,18 @@ export function createApp() {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       // Todo es local: ningún script ni recurso externo. 'wasm-unsafe-eval' lo exige WebAssembly.
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': `default-src 'self'; script-src 'self' ${process.env.OLD_CSP === '1' ? '' : 'blob: '}'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,
     });
     next();
+  });
+  // El motor pesa ~32 MB: comprimirlo en cada pedido ahoga a un servidor chico (plan gratis) y la carga se "cuelga".
+  // Lo comprimimos UNA vez al arrancar (en segundo plano) y lo servimos desde memoria; mientras tanto va sin comprimir.
+  app.use(compression({ filter: (req, res) => !req.path.startsWith('/vendor/core') && compression.filter(req, res) }));
+  app.use('/vendor', (req, res, next) => {
+    const hit = packed.get(req.path);
+    if (!hit || !/\bgzip\b/.test(req.headers['accept-encoding'] || '')) return next();
+    res.set({ 'Content-Encoding': 'gzip', 'Content-Type': hit.type, 'Content-Length': hit.buf.length, Vary: 'Accept-Encoding', 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Raw-Length': hit.raw });
+    res.end(hit.buf);
   });
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
   app.use(express.static(join(here, 'public'), {

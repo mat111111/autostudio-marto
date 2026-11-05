@@ -200,3 +200,23 @@ test('zoom animado en ffmpeg nativo: todos los efectos corren y un cuadro coinci
   const pc = getPsnr(frameAt(c.out, 1, 'fc'), frameAt(a.out, 2, 'fa2'));
   assert.ok(pc > 22, `con velocidad ×2 el efecto se desfasó (PSNR ${pc} dB)`);
 });
+
+test('servidor: el motor precomprimido conserva COOP/COEP/CORP (sin ellos el worker multi-hilo se bloquea)', async () => {
+  const { createApp, warmVendor } = await import('../server.js');
+  await warmVendor();
+  const srv = createApp().listen(0);
+  try {
+    const port = srv.address().port;
+    for (const file of ['core-mt/ffmpeg-core.worker.js', 'core-mt/ffmpeg-core.js', 'core/ffmpeg-core.js']) {
+      const raw = await fetch(`http://127.0.0.1:${port}/vendor/${file}`, { headers: { 'Accept-Encoding': 'identity' } });
+      const gz = await fetch(`http://127.0.0.1:${port}/vendor/${file}`, { headers: { 'Accept-Encoding': 'gzip' } });
+      for (const r of [raw, gz]) {
+        assert.equal(r.status, 200, file);
+        assert.equal(r.headers.get('cross-origin-embedder-policy'), 'require-corp', file);
+        assert.equal(r.headers.get('cross-origin-opener-policy'), 'same-origin', file);
+        assert.equal(r.headers.get('cross-origin-resource-policy'), 'same-origin', file);
+      }
+      assert.equal((await raw.text()).length, (await gz.text()).length, 'mismo contenido con y sin gzip: ' + file);
+    }
+  } finally { srv.close(); }
+});
