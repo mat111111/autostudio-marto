@@ -22,6 +22,7 @@ export function drawFrame(c, W, H, st, t, { overlay = true } = {}) {
   c.fillStyle = '#000';
   c.fillRect(0, 0, W, H);
   if (!v || !v.videoWidth) return;
+  if (v.readyState < 2) { c.fillStyle = '#8c97ad'; c.font = `${Math.round(W / 16)}px sans-serif`; c.textAlign = 'center'; c.fillText('Cargando cuadro…', W / 2, H / 2); return; }
   const sw = v.videoWidth, sh = v.videoHeight;
   const z = zoomAt(st.zooms, t);
   const cx = z ? z.cx : st.settings.cx, cy = z ? z.cy : st.settings.cy;

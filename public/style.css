@@ -64,5 +64,6 @@ textarea { resize: vertical; } input[type=color] { width: 100%; height: 30px; bo
 #toast { position: fixed; top: 54px; left: 50%; transform: translateX(-50%); background: #222b3f; border: 1px solid var(--ln); padding: 9px 16px; border-radius: 9px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50; max-width: 80vw; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
 #toast.show { opacity: 1; } #toast.err { border-color: var(--rd); color: #ffc4c4; } #toast.ok { border-color: var(--gn); }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 55% 45%; } #side { border-left: 0; border-top: 1px solid var(--ln); } body { grid-template-rows: 46px minmax(0,1fr) 220px; } }
-/* El <video> fuente no se muestra: solo alimenta al canvas. Fuera del flujo de la grilla. */
-#src { position: fixed; left: -9999px; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+/* El <video> fuente solo alimenta al canvas. Se deja DENTRO del viewport (1px, casi transparente):
+   si está fuera de pantalla o con display:none, algunos navegadores no refrescan su cuadro y el canvas queda negro. */
+#src { position: fixed; right: 0; bottom: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; z-index: -1; }

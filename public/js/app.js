@@ -38,9 +38,41 @@ async function loadVideo(file) {
   $('#drop').classList.remove('busy');
   $('#fileName').textContent = `${file.name} · ${source.width}×${source.height} · ${(file.size / 1048576).toFixed(1)} MB`;
   if (file.size > 1.5 * 1024 ** 3) toast('Archivo muy grande: el render puede agotar la memoria del navegador. Usá 540p/720p.', 'err');
-  seek(0);
+  await primeFrame(v);
   ui.analysis = null; ui.analysisState = 'busy';
   analyzeAudio(file).then((a) => { if (ui.file !== file) return; ui.analysis = a; ui.analysisState = a ? 'ok' : 'fail'; renderTimeline(); renderPanel(); });
+}
+
+/** Fuerza a que el navegador decodifique y entregue un cuadro real (algunas grabaciones no lo hacen en t=0). */
+async function primeFrame(v) {
+  const once = (ev, ms = 2500) => new Promise((res) => { const t = setTimeout(res, ms); v.addEventListener(ev, () => { clearTimeout(t); res(); }, { once: true }); });
+  try {
+    v.muted = true;
+    await v.play().catch(() => {});
+    await new Promise((r) => setTimeout(r, 150));
+    v.pause();
+    v.muted = false;
+  } catch { /* seguimos igual */ }
+  const dur = v.duration;
+  v.currentTime = Math.min(0.1, dur / 2); await once('seeked');
+  v.currentTime = 0; await once('seeked');
+  checkBlack(v);
+}
+
+/** Si tras cargar el cuadro sigue siendo todo negro, avisamos con una causa probable. */
+function checkBlack(v) {
+  setTimeout(() => {
+    if (ui.video !== v || !store.state) return;
+    const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    try { g.drawImage(v, 0, 0, 32, 32); } catch { return; }
+    const d = g.getImageData(0, 0, 32, 32).data;
+    let max = 0; for (let i = 0; i < d.length; i += 4) max = Math.max(max, d[i], d[i + 1], d[i + 2]);
+    // Un cuadro real casi nunca es 100 % negro; si readyState < 2 el navegador ni siquiera tiene imagen.
+    if (v.readyState < 2 || (max < 3 && v.currentTime < 0.5)) {
+      toast('La vista previa está negra: el navegador no está decodificando este video (¿códec HEVC/H.265 o 10-bit?). Probá avanzar con ▶; si sigue negro, convertilo a H.264 (HandBrake o QuickTime → Exportar).', 'err');
+    }
+  }, 600);
 }
 
 // ---- Cambios de estado ----------------------------------------------------------------------
