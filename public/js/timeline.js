@@ -172,7 +172,7 @@ export function buildSegments({ clips, zooms }) {
         end: e,
         speed: c.speed || 1,
         volume: c.volume ?? 1,
-        zoom: z ? { scale: z.scale, cx: z.cx, cy: z.cy } : null,
+        zoom: z ? { scale: z.scale, cx: z.cx, cy: z.cy, anim: z.anim || 'static', zstart: z.start, zend: z.end } : null,
       });
     }
   }
@@ -188,3 +188,34 @@ export function zoomAt(zooms, t) {
 
 export const clipAt = (clips, t) => clips.find((c) => t >= c.start - 1e-6 && t < c.end - 1e-6) || null;
 export const nextClip = (clips, t) => clips.find((c) => c.start > t) || null;
+
+// ---- Efectos de zoom --------------------------------------------------------------------------
+export const ZOOM_ANIMS = [['static', 'Fijo'], ['in', 'Acercar suave'], ['out', 'Alejar suave'], ['inout', 'Acercar y volver'], ['punch', 'Golpe (rápido)']];
+export const PUNCH_SECS = 0.3;
+const ease = (p) => p * p * (3 - 2 * p); // smoothstep
+const cl = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/** Fracción 0..1 del efecto. p = progreso en el rango, secs = segundos desde el inicio del zoom. */
+export function zoomFrac(anim, p, secs) {
+  switch (anim) {
+    case 'in': return ease(p);
+    case 'out': return 1 - ease(p);
+    case 'inout': return Math.sin(Math.PI * p);
+    case 'punch': return ease(cl(secs / PUNCH_SECS, 0, 1));
+    default: return 1;
+  }
+}
+
+/**
+ * Encuadre (escala + centro) para un zoom en el instante t (tiempo original).
+ * La vista previa y el render usan ESTA misma definición. `animate=false` => valor final fijo.
+ * g = foco global {cx,cy}: el zoom animado se desplaza desde ahí hasta su propio centro.
+ */
+export function zoomState(z, t, g, animate = true) {
+  if (!z) return { scale: 1, cx: g.cx, cy: g.cy };
+  if (!animate || !z.anim || z.anim === 'static') return { scale: z.scale, cx: z.cx, cy: z.cy };
+  const dur = z.end - z.start;
+  const secs = cl(t - z.start, 0, dur);
+  const f = zoomFrac(z.anim, dur > 0 ? secs / dur : 1, secs);
+  return { scale: 1 + (z.scale - 1) * f, cx: g.cx + (z.cx - g.cx) * f, cy: g.cy + (z.cy - g.cy) * f };
+}

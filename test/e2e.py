@@ -6,6 +6,7 @@ URL = os.environ.get("URL", "http://localhost:3111")
 VIDEO = os.environ.get("VIDEO", "/tmp/asm/in.mp4")
 OUT = "/tmp/asm/out.mp4"
 OUT2 = "/tmp/asm/out2.mp4"
+OUT3 = "/tmp/asm/out3.mp4"
 errors = []
 
 def main():
@@ -15,6 +16,7 @@ def main():
         page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
         page.on("pageerror", lambda e: errors.append("PAGEERROR " + str(e)))
         page.on("dialog", lambda d: d.dismiss())
+        if os.environ.get("ENGINE"): page.add_init_script("localStorage.setItem('asm:engine','%s')" % os.environ["ENGINE"])
         page.goto(URL)
         iso = page.evaluate("self.crossOriginIsolated")
         print("crossOriginIsolated:", iso)
@@ -99,6 +101,15 @@ def main():
         b64 = page.evaluate("""async()=>{const b=__app.ui.result.blob;const buf=new Uint8Array(await b.arrayBuffer());let s='';for(let i=0;i<buf.length;i+=32768)s+=String.fromCharCode.apply(null,buf.subarray(i,i+32768));return btoa(s)}""")
         open(OUT2, "wb").write(base64.b64decode(b64))
         page.screenshot(path="/tmp/asm/ui2.png")
+
+        # --- 3ª exportación: zoom ANIMADO (acercar 0-4 s y golpe 6-9 s) en modo recortar, 9:16
+        page.evaluate("""__app.act(s=>{s.clips=[{id:'c8',start:0,end:12,speed:1,volume:1}];s.settings.ratio='9:16';s.settings.fit='cover';s.settings.music.enabled=false;s.settings.denoise=false;
+          s.zooms=[{id:'za',start:0,end:4,scale:2.2,cx:0.75,cy:0.4,anim:'in'},{id:'zb',start:6,end:9,scale:1.8,cx:0.3,cy:0.5,anim:'punch'}]})""")
+        t0 = time.time()
+        page.evaluate("__app.runExport()")
+        print("3ª export (zoom animado) en %.1fs" % (time.time() - t0))
+        b64 = page.evaluate("""async()=>{const b=__app.ui.result.blob;const buf=new Uint8Array(await b.arrayBuffer());let s='';for(let i=0;i<buf.length;i+=32768)s+=String.fromCharCode.apply(null,buf.subarray(i,i+32768));return btoa(s)}""")
+        open(OUT3, "wb").write(base64.b64decode(b64))
         b.close()
     pr = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height:format=duration", "-of", "json", OUT]))
     print(json.dumps(pr))
@@ -116,6 +127,9 @@ def main():
     mean = float([l for l in vd.splitlines() if "mean_volume" in l][0].split(":")[1].split()[0])
     print("volumen medio en tramo mudo del original (con música): %.1f dB" % mean)
     assert mean > -50, "la música no se mezcló"
+    p3 = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", OUT3]))
+    assert abs(float(p3["format"]["duration"]) - 12) < 0.4, p3
+    print("zoom animado OK:", p3["format"]["duration"], "s")
     bad = [e for e in errors if "favicon" not in e]
     print("errores de consola:", bad)
     assert not bad

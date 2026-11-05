@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -144,4 +144,59 @@ test('el filtergraph renderiza de verdad (ffmpeg nativo) y respeta duración', {
   const o2 = join(dir, 'o2.mp4');
   execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', noAudio, '-filter_complex', g.graph, '-map', '[vo]', '-map', '[ao]', '-t', String(g.duration), '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', o2]);
   assert.ok(existsSync(o2));
+});
+
+test('zoomState: efectos y coherencia con el rango', () => {
+  const g = { cx: 0.5, cy: 0.5 };
+  const z = { start: 2, end: 6, scale: 2, cx: 0.8, cy: 0.2, anim: 'in' };
+  assert.equal(T.zoomState(null, 3, g).scale, 1);
+  assert.equal(T.zoomState({ ...z, anim: 'static' }, 3, g).scale, 2);
+  assert.ok(Math.abs(T.zoomState(z, 2, g).scale - 1) < 1e-9, 'acercar empieza en 1');
+  assert.ok(Math.abs(T.zoomState(z, 6, g).scale - 2) < 1e-9, 'acercar termina en la escala');
+  const mid = T.zoomState(z, 4, g);
+  assert.ok(Math.abs(mid.scale - 1.5) < 1e-9 && Math.abs(mid.cx - 0.65) < 1e-9);
+  assert.ok(Math.abs(T.zoomState({ ...z, anim: 'out' }, 2, g).scale - 2) < 1e-9);
+  assert.ok(Math.abs(T.zoomState({ ...z, anim: 'inout' }, 4, g).scale - 2) < 1e-9, 'ida y vuelta: pico al medio');
+  assert.ok(Math.abs(T.zoomState({ ...z, anim: 'inout' }, 6, g).scale - 1) < 1e-9);
+  assert.ok(Math.abs(T.zoomState({ ...z, anim: 'punch' }, 2 + T.PUNCH_SECS, g).scale - 2) < 1e-9, 'golpe llega rápido');
+  assert.equal(T.zoomState(z, 4, g, false).scale, 2, 'sin animar => valor final');
+});
+
+test('zoom animado en ffmpeg nativo: todos los efectos corren y un cuadro coincide con el zoom fijo equivalente', { skip: !hasFfmpeg }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'asz-'));
+  const src = join(dir, 'in.mp4');
+  execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30:duration=6', '-c:v', 'libx264', '-crf', '10', '-pix_fmt', 'yuv420p', src]);
+  const mk = (zoom, speed = 1) => {
+    const st = initialState({ name: 'in.mp4', duration: 6, width: 1280, height: 720, size: 1 });
+    st.settings.res = 540; st.settings.fps = 30; st.settings.denoise = false; st.settings.normalize = false;
+    st.clips = [clip(0, 6, speed)];
+    st.zooms = [zoom];
+    return st;
+  };
+  const render = (st, name) => {
+    const { graph, duration } = buildGraph(st, { hasAudio: false });
+    const out = join(dir, name + '.mp4');
+    execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', src, '-filter_complex', graph, '-map', '[vo]', '-map', '[ao]', '-t', String(duration), '-c:v', 'libx264', '-crf', '10', '-preset', 'ultrafast', '-c:a', 'aac', out]);
+    return { out, duration };
+  };
+  const frameAt = (file, t, name) => { const p = join(dir, name + '.png'); execFileSync('ffmpeg', ['-y', '-v', 'error', '-ss', String(t), '-i', file, '-frames:v', '1', p]); return p; };
+  const getPsnr = (a, b) => {
+    const r = spawnSync('ffmpeg', ['-i', a, '-i', b, '-lavfi', 'psnr', '-f', 'null', '-'], { encoding: 'utf8' });
+    const m = /average:([\d.]+|inf)/.exec(r.stderr);
+    return m[1] === 'inf' ? 99 : parseFloat(m[1]);
+  };
+
+  for (const anim of ['in', 'out', 'inout', 'punch']) {
+    const r = render(mk({ id: 'z', start: 0, end: 4, scale: 2, cx: 0.7, cy: 0.4, anim }), 'anim-' + anim);
+    assert.ok(existsSync(r.out), anim);
+  }
+  // 'in' a mitad del rango (t=2 s): zoom 1.5 centrado en (0.6, 0.45) ≡ zoom fijo equivalente
+  const a = render(mk({ id: 'z', start: 0, end: 4, scale: 2, cx: 0.7, cy: 0.4, anim: 'in' }), 'a');
+  const b = render(mk({ id: 'z', start: 0, end: 6, scale: 1.5, cx: 0.6, cy: 0.45, anim: 'static' }), 'b');
+  const p = getPsnr(frameAt(a.out, 2, 'fa'), frameAt(b.out, 2, 'fb'));
+  assert.ok(p > 24, `el cuadro animado difiere del fijo equivalente (PSNR ${p} dB)`);
+  // con velocidad ×2 el efecto debe seguir al tiempo ORIGINAL: en t_out=1 s (orig 2 s) debe ser el mismo cuadro que sin velocidad en t=2
+  const c = render(mk({ id: 'z', start: 0, end: 4, scale: 2, cx: 0.7, cy: 0.4, anim: 'in' }, 2), 'c');
+  const pc = getPsnr(frameAt(c.out, 1, 'fc'), frameAt(a.out, 2, 'fa2'));
+  assert.ok(pc > 22, `con velocidad ×2 el efecto se desfasó (PSNR ${pc} dB)`);
 });

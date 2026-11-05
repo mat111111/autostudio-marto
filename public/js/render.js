@@ -8,25 +8,80 @@ import { outputSrt } from './subs.js';
 const DEBUG = (() => { try { return localStorage.getItem('asm:debug') === '1'; } catch { return false; } })();
 let ff = null;
 let loadedKind = null;
+const blobCache = new Map();
 
 export const canMultiThread = () => typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated === true;
 
-async function getFFmpeg(onLog) {
-  if (ff && ff.loaded) return ff;
-  ff = new FFmpeg();
-  ff.on('log', ({ message }) => { if (DEBUG) console.log('[ffmpeg]', message); onLog && onLog(message); });
-  const mt = canMultiThread();
-  const base = `${location.origin}/vendor/${mt ? 'core-mt' : 'core'}/`;
+/** Preferencia guardada: 'auto' | 'single'. */
+export const getEnginePref = () => { try { return localStorage.getItem('asm:engine') || 'auto'; } catch { return 'auto'; } };
+export const setEnginePref = (v) => { try { localStorage.setItem('asm:engine', v); } catch { /* sin storage */ } };
+
+/** Multi-hilo solo si se puede Y el equipo parece tener recursos (el multi-hilo reserva mucha memoria compartida). */
+export function pickEngine() {
+  if (getEnginePref() === 'single' || !canMultiThread()) return 'single';
+  if (getEnginePref() === 'multi') return 'multi'; // forzado (solo pruebas / usuarios avanzados)
+  const cores = navigator.hardwareConcurrency || 2;
+  const mem = navigator.deviceMemory || 8; // Chrome lo topea en 8; si no existe, asumimos suficiente
+  return cores >= 4 && mem >= 8 ? 'multi' : 'single';
+}
+
+/** Descarga un archivo con progreso y devuelve una URL blob (se cachea en memoria). */
+async function blobURL(url, mime, onBytes) {
+  if (blobCache.has(url)) return blobCache.get(url);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`No se pudo descargar ${url} (HTTP ${res.status})`);
+  const total = +res.headers.get('X-Raw-Length') || +res.headers.get('content-length') || 0;
+  const reader = res.body.getReader();
+  const chunks = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    got += value.length;
+    onBytes(got, total);
+  }
+  const u = URL.createObjectURL(new Blob(chunks, { type: mime }));
+  blobCache.set(url, u);
+  return u;
+}
+
+const withTimeout = (p, ms, msg) => new Promise((res, rej) => { const t = setTimeout(() => rej(new Error(msg)), ms); p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); }); });
+
+async function loadKind(kind, onLog, onProgress) {
+  const mt = kind === 'multi';
+  const dir = `${location.origin}/vendor/${mt ? 'core-mt' : 'core'}/`;
+  const names = mt ? ['ffmpeg-core.js', 'ffmpeg-core.wasm', 'ffmpeg-core.worker.js'] : ['ffmpeg-core.js', 'ffmpeg-core.wasm'];
+  const mimes = { js: 'text/javascript', wasm: 'application/wasm' };
+  const urls = [];
+  for (const n of names) {
+    urls.push(await blobURL(dir + n, mimes[n.endsWith('wasm') ? 'wasm' : 'js'], (g, t) => onProgress(`Descargando motor de video… ${(g / 1048576).toFixed(1)}${t ? ' / ' + (t / 1048576).toFixed(0) : ''} MB (${n})`)));
+  }
+  const f = new FFmpeg();
+  f.on('log', ({ message }) => { if (DEBUG) console.log('[ffmpeg]', message); onLog && onLog(message); });
+  onProgress(`Iniciando motor (${mt ? 'multi-hilo' : 'un hilo'})…`);
   try {
-    await ff.load(mt ? { coreURL: base + 'ffmpeg-core.js', wasmURL: base + 'ffmpeg-core.wasm', workerURL: base + 'ffmpeg-core.worker.js' } : { coreURL: base + 'ffmpeg-core.js', wasmURL: base + 'ffmpeg-core.wasm' });
-    loadedKind = mt ? 'multi-hilo' : 'un hilo';
-  } catch (e) {
-    ff = null;
-    throw new Error('No se pudo cargar ffmpeg.wasm: ' + (e.message || e));
+    await withTimeout(f.load(mt ? { coreURL: urls[0], wasmURL: urls[1], workerURL: urls[2] } : { coreURL: urls[0], wasmURL: urls[1] }), mt ? 60000 : 120000, 'El motor tardó demasiado en iniciar.');
+  } catch (e) { try { f.terminate(); } catch { /* nada */ } throw e; }
+  return f;
+}
+
+async function getFFmpeg(onLog, onProgress = () => {}) {
+  if (ff && ff.loaded) return ff;
+  const want = pickEngine();
+  try {
+    ff = await loadKind(want, onLog, onProgress);
+    loadedKind = want === 'multi' ? 'multi-hilo' : 'un hilo';
+  } catch (e1) {
+    if (want === 'multi') {
+      onProgress('El modo multi-hilo no arrancó; probando modo compatible (un hilo)…');
+      try { ff = await loadKind('single', onLog, onProgress); loadedKind = 'un hilo'; setEnginePref('single'); }
+      catch (e2) { ff = null; throw new Error('No se pudo cargar el motor de video: ' + (e2.message || e2)); }
+    } else { ff = null; throw new Error('No se pudo cargar el motor de video: ' + (e1.message || e1)); }
   }
   return ff;
 }
-export const engineKind = () => loadedKind || (canMultiThread() ? 'multi-hilo' : 'un hilo');
+export const engineKind = () => loadedKind || (pickEngine() === 'multi' ? 'multi-hilo' : 'un hilo');
 
 const toPng = (canvas) => new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('No se pudo generar el PNG'))), 'image/png'));
 const ext = (name, d) => (/\.([a-z0-9]{1,5})$/i.exec(name || '') || [, d])[1].toLowerCase();
@@ -43,7 +98,7 @@ export async function exportVideo({ state, file, musicFile, images, onProgress =
   const t0 = performance.now();
   onProgress(0, 'Cargando motor de video (ffmpeg.wasm)…');
   let logBuf = [];
-  const f = await getFFmpeg((m) => { logBuf.push(m); if (logBuf.length > 400) logBuf.shift(); onLog(m); });
+  const f = await getFFmpeg((m) => { logBuf.push(m); if (logBuf.length > 400) logBuf.shift(); onLog(m); }, (msg) => onProgress(0, msg));
 
   const cleanup = [];
   const rmFile = async (p) => { try { await f.deleteFile(p); } catch { /* no existía */ } };

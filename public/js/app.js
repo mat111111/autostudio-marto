@@ -1,4 +1,4 @@
-import { store, ui, $, toast, seek, curT, duration, act, select } from './ctx.js';
+import { store, ui, $, toast, seek, curT, duration, act, select, setPps } from './ctx.js';
 import { initialState, sanitize } from './store.js';
 import { initPreview, togglePlay, stopPlayback } from './preview.js';
 import { initTimeline, renderTimeline } from './timeline_ui.js';
@@ -33,6 +33,8 @@ async function loadVideo(file) {
     if (saved && confirm('Encontré una edición anterior de este video en este navegador.\n¿Querés recuperarla? (Cancelar = empezar de cero)')) state = sanitize(JSON.parse(saved), source);
   } catch { /* sin almacenamiento */ }
   store.load(state);
+  setPps(70);
+  renderTimeline();
   rehydrateImages();
   $('#drop').classList.add('hidden');
   $('#drop').classList.remove('busy');
@@ -118,7 +120,7 @@ function init() {
   $('#qOut').addEventListener('click', () => setMark('b'));
   $('#qCut').addEventListener('click', cutMarked);
   $('#btnExport').addEventListener('click', () => { if (!store.state) return toast('Abrí un video primero.', 'err'); ui.tab = 'exportar'; store.emit('select'); });
-  $('#zoomTl').addEventListener('input', (e) => { ui.pps = +e.target.value; renderTimeline(); });
+  $('#zoomTl').addEventListener('input', (e) => { setPps(+e.target.value); renderTimeline(); });
 
   // Arrastrar y soltar
   addEventListener('dragover', (e) => e.preventDefault());

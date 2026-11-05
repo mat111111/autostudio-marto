@@ -34,7 +34,7 @@ export function sanitize(raw, source) {
   const arr = (a) => (Array.isArray(a) ? a : []);
   const clips = arr(raw.clips).map((c) => { const r = rng(c || {}); return r && { id: newId('c_'), ...r, speed: clamp(num(c.speed, 1), 0.25, 4), volume: clamp(num(c.volume, 1), 0, 2) }; }).filter(Boolean);
   if (clips.length) st.clips = normalizeClips(clips);
-  st.zooms = arr(raw.zooms).map((z) => { const r = rng(z || {}); return r && { id: newId('z_'), ...r, scale: clamp(num(z.scale, 1.3), 1, 4), cx: clamp(num(z.cx, 0.5), 0, 1), cy: clamp(num(z.cy, 0.5), 0, 1) }; }).filter(Boolean);
+  st.zooms = arr(raw.zooms).map((z) => { const r = rng(z || {}); return r && { id: newId('z_'), ...r, scale: clamp(num(z.scale, 1.3), 1, 4), cx: clamp(num(z.cx, 0.5), 0, 1), cy: clamp(num(z.cy, 0.5), 0, 1), anim: ['static', 'in', 'out', 'inout', 'punch'].includes(z.anim) ? z.anim : 'static' }; }).filter(Boolean);
   st.subs = arr(raw.subs).map((c) => { const r = rng(c || {}); return r && { id: newId('s_'), ...r, text: String(c.text || '').slice(0, 500) }; }).filter(Boolean);
   st.titles = arr(raw.titles).map((t) => { const r = rng(t || {}); return r && { id: newId('t_'), ...r, text: String(t.text || '').slice(0, 300), x: clamp(num(t.x, 0.5), 0, 1), y: clamp(num(t.y, 0.2), 0, 1), size: clamp(num(t.size, 80), 10, 300), color: String(t.color || '#ffffff').slice(0, 30), bg: String(t.bg || '').slice(0, 40), font: String(t.font || 'Sans (Arial)'), weight: 800 }; }).filter(Boolean);
   for (const [id, a] of Object.entries(raw.assets && typeof raw.assets === 'object' ? raw.assets : {})) {

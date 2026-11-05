@@ -12,7 +12,7 @@ así que no hay límite de minutos, de cola ni de plan de servidor.
 | Cortes | Dividir (`S`), marcar entrada/salida (`I`/`O`) y cortar (`X`) o conservar (`K`); arrastrar bordes de clips. |
 | Silencios | La onda muestra en rojo los tramos silenciosos (umbral y duración ajustables). **Vos** elegís cuáles cortar. |
 | Velocidad / volumen | ×0.25 a ×4 por rango o clip; volumen por clip. |
-| Zoom | Rangos con intensidad y centro elegido arrastrando un punto. |
+| Zoom | Rangos con intensidad y centro elegido arrastrando un punto. **Efectos:** fijo, acercar suave, alejar suave, acercar y volver, golpe rápido (la cámara también se desplaza al centro del zoom). |
 | Reencuadre 9:16 · 1:1 · 4:5 · 16:9 | Recortar para llenar (con centro ajustable) o completo con fondo desenfocado. |
 | Subtítulos | Escribir, editar tiempos, importar `.srt`, exportar `.srt` (ya ajustado a tus cortes). Estilo y posición. |
 | Títulos e imágenes/logos | Texto con fuente/color/caja; imágenes con tamaño y opacidad. Se arrastran en la vista previa. |
@@ -50,7 +50,8 @@ pero en un solo hilo (varias veces más lento). La pestaña *Exportar* indica qu
 ## Límites honestos
 - El render depende de la memoria del navegador: para videos largos o pesados usá 540p/720p. Más de ~1.5 GB de origen puede fallar.
 - La reducción de ruido y la normalización se aplican al exportar (no se escuchan en la vista previa).
-- El zoom es estático por rango (sin animación suave); es lo que mantiene el render rápido y fiel a la vista previa.
+- Los efectos de zoom animados solo funcionan en el modo "Recortar para llenar"; con "fondo desenfocado" el zoom se aplica fijo.
+- Si la exportación se queda en "Cargando motor": en *Exportar* elegí motor "Un hilo" (usa menos memoria). El modo automático ya lo elige solo en equipos con menos de 4 núcleos o 8 GB, y cae a "un hilo" si el multi-hilo no arranca en 60 s.
 - La vista previa necesita que el navegador decodifique el video (H.264 va siempre; HEVC/H.265 depende del equipo). El render con ffmpeg.wasm tampoco decodifica HEVC.
 - La imagen del `Dockerfile` no pudo construirse en el entorno donde se desarrolló (Docker Hub bloqueado); es mínimo, pero probalo.
 

@@ -1,7 +1,7 @@
 // Vista previa: canvas con el MISMO encuadre y las MISMAS capas que el render.
 import { store, ui, curT, seek, duration, toast } from './ctx.js';
 import { cropRect, outputSize } from './frame.js';
-import { zoomAt, clipAt, nextClip } from './timeline.js';
+import { zoomAt, clipAt, nextClip, zoomState } from './timeline.js';
 import { paintOverlay } from './paint.js';
 import { clamp, fmt } from './util.js';
 
@@ -25,8 +25,9 @@ export function drawFrame(c, W, H, st, t, { overlay = true } = {}) {
   if (v.readyState < 2) { c.fillStyle = '#8c97ad'; c.font = `${Math.round(W / 16)}px sans-serif`; c.textAlign = 'center'; c.fillText('Cargando cuadro…', W / 2, H / 2); return; }
   const sw = v.videoWidth, sh = v.videoHeight;
   const z = zoomAt(st.zooms, t);
-  const cx = z ? z.cx : st.settings.cx, cy = z ? z.cy : st.settings.cy;
-  const zoom = z ? z.scale : 1;
+  // Los efectos animados solo existen en modo "recortar" (igual que en el render).
+  const zs = zoomState(z, t, { cx: st.settings.cx, cy: st.settings.cy }, st.settings.fit === 'cover');
+  const cx = zs.cx, cy = zs.cy, zoom = zs.scale;
   if (st.settings.fit === 'blur') {
     const bg = cropRect(sw, sh, W / H, 1, 0.5, 0.5);
     c.save();

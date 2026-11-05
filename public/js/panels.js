@@ -2,13 +2,14 @@
 import { store, ui, $, toast, act, edit, seek, curT, duration, select, isSel, markRange } from './ctx.js';
 import { h, fmt, parseTime, clamp, newId, round } from './util.js';
 import * as T from './timeline.js';
+const ANIM_LABEL = Object.fromEntries(T.ZOOM_ANIMS);
 import { parseSrt, outputSrt } from './subs.js';
 import { findSilences } from './audio.js';
 import { focusPicker, drawFrame, stopPlayback } from './preview.js';
 import { FONTS, drawText } from './paint.js';
 import { buildCopy } from './copy.js';
 import { outputSize, RATIOS } from './frame.js';
-import { exportVideo, cancelExport, canMultiThread, engineKind } from './render.js';
+import { exportVideo, cancelExport, canMultiThread, engineKind, pickEngine, getEnginePref, setEnginePref } from './render.js';
 import { sanitize, initialState } from './store.js';
 
 export const TABS = [
@@ -158,15 +159,17 @@ function encuadre(st) {
     const a = m ? m[0] : curT(), b = m ? m[1] : Math.min(duration(), curT() + 2);
     if (b - a < 0.1) return toast('No hay espacio para el zoom.', 'err');
     const id = newId('z_');
-    act((x) => { x.zooms = T.carveZooms(x.zooms, a, b); x.zooms.push({ id, start: a, end: b, scale: 1.4, cx: x.settings.cx, cy: x.settings.cy }); x.zooms.sort((p, q) => p.start - q.start); }, 'zoom');
+    act((x) => { x.zooms = T.carveZooms(x.zooms, a, b); x.zooms.push({ id, start: a, end: b, scale: 1.4, cx: x.settings.cx, cy: x.settings.cy, anim: 'in' }); x.zooms.sort((p, q) => p.start - q.start); }, 'zoom');
     select('zoom', id);
   };
   const zs = sec(`Zooms (${st.zooms.length})`,
     btn('＋ Zoom en la selección (o 2 s desde el cabezal)', mk),
-    hint('Dentro del rango el encuadre es fijo (zoom estático). Si tocás otro rango, el zoom nuevo reemplaza al anterior en esa zona.'),
+    hint('Elegí el efecto de cada zoom: fijo, acercar/alejar suave, acercar y volver, o golpe rápido. Si tocás otro rango, el zoom nuevo reemplaza al anterior en esa zona. Con efecto, la cámara se desplaza desde el centro general hasta el centro del zoom.'),
     h('div', { class: 'list' }, st.zooms.map((z) => h('div', { class: 'card-row' + (isSel('zoom', z.id) ? ' sel row' : ' row'), onclick: () => !isSel('zoom', z.id) && select('zoom', z.id) },
-      h('div', { class: 'top' }, h('b', {}, '🔍 ×' + z.scale), btn('✕', (e) => { e.stopPropagation(); act((x) => { x.zooms = x.zooms.filter((q) => q.id !== z.id); }, 'borrar zoom'); }, 'mini danger')),
+      h('div', { class: 'top' }, h('b', {}, '🔍 ×' + z.scale + ' · ' + (ANIM_LABEL[z.anim || 'static'])), btn('✕', (e) => { e.stopPropagation(); act((x) => { x.zooms = x.zooms.filter((q) => q.id !== z.id); }, 'borrar zoom'); }, 'mini danger')),
       isSel('zoom', z.id) ? h('div', {}, timesRow('zoom', z.id),
+        field('Efecto', select_(T.ZOOM_ANIMS, z.anim || 'static', (v) => act((x) => { x.zooms.find((q) => q.id === z.id).anim = v; }, 'efecto zoom'))),
+        store.state.settings.fit === 'blur' && (z.anim || 'static') !== 'static' ? hint('Con "fondo desenfocado" el zoom se aplica fijo; para animarlo elegí "Recortar para llenar".') : null,
         field('Intensidad', range(z.scale, { min: 1, max: 3, step: 0.05 }, (v) => edit((x) => { x.zooms.find((q) => q.id === z.id).scale = v; }, 'zs-' + z.id), (v) => '×' + v.toFixed(2))),
         focusPicker({ get: () => { const q = store.state.zooms.find((i) => i.id === z.id) || z; return [q.cx, q.cy]; }, set: (cx, cy) => edit((x) => { const q = x.zooms.find((i) => i.id === z.id); if (q) { q.cx = round(cx); q.cy = round(cy); } }, 'zf-' + z.id), scale: () => (store.state.zooms.find((i) => i.id === z.id) || z).scale })) : h('span', { class: 'dim' }, `${fmt(z.start)} → ${fmt(z.end)}`)))));
   return h('div', {}, fmtSec, zs, sec('Ayudas', check('Mostrar zonas seguras de Reels/TikTok', ui.guides, (v) => { ui.guides = v; })));
@@ -400,7 +403,9 @@ function exportar(st) {
       field('Cuadros por segundo', select_([24, 25, 30, 60], s.fps, (v) => act((x) => { x.settings.fps = +v; }, 'fps'))),
       field('Calidad (CRF, menor = mejor)', range(s.crf, { min: 18, max: 30, step: 1 }, (v) => edit((x) => { x.settings.crf = v; }, 'crf'), (v) => v)),
       field('Velocidad de compresión', select_([['ultrafast', 'Más rápida'], ['veryfast', 'Rápida'], ['fast', 'Equilibrada'], ['medium', 'Más lenta, archivo menor']], s.preset, (v) => act((x) => { x.settings.preset = v; }, 'preset'))),
-      h('p', { class: 'dim' }, `Resultado: ${W}×${H} · ${fmt(D, false)} · motor ${canMultiThread() ? 'multi-hilo ✔' : 'un hilo (más lento)'}`)),
+      field('Motor de render', select_([['auto', 'Automático'], ['single', 'Un hilo (compatible, poca memoria)']], getEnginePref(), (v) => { setEnginePref(v); store.emit('select'); })),
+      h('p', { class: 'dim' }, `Resultado: ${W}×${H} · ${fmt(D, false)} · motor ${pickEngine() === 'multi' ? 'multi-hilo ✔' : 'un hilo' + (canMultiThread() ? '' : ' (el servidor no habilita multi-hilo)')}`),
+      hint('Si la exportación se queda en "Cargando motor", elegí "Un hilo": usa menos memoria y casi siempre arranca.')),
     sec('Exportar',
       ui.exporting ? h('div', {}, bar, msg, btn('Cancelar', () => { cancelExport(); ui.exporting = false; progress = { p: 0, msg: 'Cancelado' }; toast('Exportación cancelada'); store.emit('select'); }, 'danger')) : btn('🎬 Exportar MP4', runExport, 'primary big'),
       hint('El render ocurre en tu navegador; el video no se sube a ningún servidor. Cerrá otras pestañas pesadas y no cambies de pestaña mientras renderiza.'),

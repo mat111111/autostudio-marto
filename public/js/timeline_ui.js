@@ -1,5 +1,5 @@
 // Línea de tiempo multipista. Eje = tiempo del video ORIGINAL; los huecos son lo que cortaste.
-import { store, ui, seek, select, isSel, duration, curT, markRange } from './ctx.js';
+import { store, ui, seek, select, isSel, duration, curT, markRange, setPps } from './ctx.js';
 import { findSilences } from './audio.js';
 import { h, clamp, fmt } from './util.js';
 
@@ -21,8 +21,7 @@ export function initTimeline() {
   scroll.addEventListener('wheel', (e) => {
     if (!e.ctrlKey) return;
     e.preventDefault();
-    ui.pps = clamp(ui.pps * (e.deltaY < 0 ? 1.15 : 0.87), 6, 600);
-    document.getElementById('zoomTl').value = ui.pps;
+    setPps(ui.pps * (e.deltaY < 0 ? 1.15 : 0.87));
     renderTimeline();
   }, { passive: false });
   window.__tl = { update };
@@ -62,7 +61,7 @@ export function renderTimeline() {
 
   const blk = (row, kind, it, text, cls = '') => rows[row].append(place(h('div', { class: `blk ${kind} ${cls} ${isSel(kind, it.id) ? 'on' : ''}`, 'data-kind': kind, 'data-id': it.id, title: text }, h('i', { class: 'hl' }), h('span', {}, text), h('i', { class: 'hr' })), it.start, it.end));
   for (const c of st.clips) blk('clip', 'clip', c, `${fmt(c.end - c.start, false)}${c.speed !== 1 ? ' ×' + c.speed : ''}`, c.speed !== 1 ? 'fast' : '');
-  for (const z of st.zooms) blk('zoom', 'zoom', z, `🔍 ×${z.scale}`);
+  for (const z of st.zooms) blk('zoom', 'zoom', z, `🔍 ×${z.scale}${z.anim && z.anim !== 'static' ? ' ' + ({ in: '↗', out: '↘', inout: '↗↘', punch: '⚡' }[z.anim]) : ''}`);
   for (const s of st.subs) blk('sub', 'sub', s, s.text);
   for (const t of st.titles) blk('title', 'title', t, t.text);
   for (const o of st.overlays) blk('overlay', 'overlay', o, o.kind === 'card' ? `🎓 ${o.card.type}` : `🖼 ${st.assets[o.assetId]?.name || 'imagen'}`, o.kind === 'card' ? 'card' : '');

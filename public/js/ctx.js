@@ -63,3 +63,18 @@ export function markRange() {
   const s = Math.min(a, b), e = Math.max(a, b);
   return e - s > 0.03 ? [s, e] : null;
 }
+
+/** Ancho máximo de la línea de tiempo en px. Más allá, algunas GPU/Chromium dejan de dibujar la página (queda negra). */
+export const MAX_TL_WIDTH = 24000;
+export const ppsLimits = () => {
+  const d = Math.max(1, duration());
+  return { min: Math.min(6, MAX_TL_WIDTH / d), max: Math.min(400, MAX_TL_WIDTH / d) };
+};
+/** Fija el zoom de la línea de tiempo respetando los límites y sincroniza el slider. */
+export function setPps(v) {
+  const { min, max } = ppsLimits();
+  ui.pps = clamp(v, min, Math.max(min, max));
+  const el = document.getElementById('zoomTl');
+  if (el) { el.min = min; el.max = Math.max(min, max); el.value = ui.pps; }
+  return ui.pps;
+}

@@ -1,10 +1,25 @@
 // Construye UN solo filtergraph de ffmpeg a partir del estado del proyecto.
 // Función pura (devuelve texto): se puede probar en Node con un ffmpeg nativo y se usa igual en ffmpeg.wasm.
-import { buildSegments, outDuration } from './timeline.js';
+import { buildSegments, outDuration, PUNCH_SECS } from './timeline.js';
 import { cropRect, outputSize } from './frame.js';
 
 const f = (n, d = 4) => String(Math.round(n * 10 ** d) / 10 ** d);
 const even = (n) => Math.max(2, Math.round(n));
+
+/** Expresiones de ffmpeg equivalentes a zoomState() (en función de `t` = segundos del segmento ya a velocidad final). */
+export function zoomExprs(z, seg, g) {
+  const A0 = f(seg.start - z.zstart, 5);
+  const E = `(${A0}+t*${f(seg.speed, 5)})`; // segundos transcurridos dentro del zoom
+  const D = Math.max(0.001, z.zend - z.zstart);
+  const P = `clip(${E}/${f(D, 5)},0,1)`;
+  const ease = (p) => `((${p})*(${p})*(3-2*(${p})))`;
+  const F = { in: ease(P), out: `(1-${ease(P)})`, inout: `sin(PI*${P})`, punch: ease(`clip(${E}/${PUNCH_SECS},0,1)`) }[z.anim];
+  return {
+    Z: `(1+${f(z.scale - 1, 5)}*${F})`,
+    CX: `(${f(g.cx, 5)}+${f(z.cx - g.cx, 5)}*${F})`,
+    CY: `(${f(g.cy, 5)}+${f(z.cy - g.cy, 5)}*${F})`,
+  };
+}
 
 /** atempo solo admite 0.5..2 por filtro: se encadenan. */
 export function atempoChain(speed) {
@@ -43,6 +58,18 @@ export function buildGraph(state, opts) {
       lines.push(`[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=luma_radius=24:luma_power=2[b${i}]`);
       lines.push(`[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease[f${i}]`);
       lines.push(`[b${i}][f${i}]overlay=(W-w)/2:(H-h)/2,fps=${fps},setsar=1,format=yuv420p[v${i}]`);
+    } else if (z && z.anim && z.anim !== 'static') {
+      // Zoom animado (solo modo "recortar"): se escala el cuadro completo según t y se coloca con `overlay`
+      // sobre un lienzo W×H, de modo que el recorte equivale a cropRect() con el zoom y centro de ese instante.
+      const ar = W / H;
+      const cw0 = sw / sh > ar ? sh * ar : sw;
+      const K = f(W / cw0, 6);
+      const e = zoomExprs(z, g, { cx: st.cx, cy: st.cy });
+      const SW = `trunc(${sw}*${K}*${e.Z}/2)*2`, SH = `trunc(${sh}*${K}*${e.Z}/2)*2`;
+      const dur = (g.end - g.start) / g.speed;
+      lines.push(`${head},scale=w='max(2,${SW})':h='max(2,${SH})':eval=frame:flags=bicubic[s${i}]`);
+      lines.push(`color=c=black:s=${W}x${H}:r=${fps}:d=${f(dur + 0.5, 3)}[c${i}]`);
+      lines.push(`[c${i}][s${i}]overlay=x='-clip(${e.CX}*(${SW})-${W / 2},0,(${SW})-${W})':y='-clip(${e.CY}*(${SH})-${H / 2},0,(${SH})-${H})':eval=frame:shortest=1:format=auto,fps=${fps},setsar=1,format=yuv420p[v${i}]`);
     } else {
       const r = cropRect(sw, sh, W / H, z ? z.scale : 1, cx, cy);
       lines.push(`${head},crop=${even(r.w)}:${even(r.h)}:${Math.floor(r.x)}:${Math.floor(r.y)},scale=${W}:${H}:flags=bicubic,fps=${fps},setsar=1,format=yuv420p[v${i}]`);
